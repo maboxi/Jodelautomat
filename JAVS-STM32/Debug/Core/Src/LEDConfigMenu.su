@@ -1,0 +1,6 @@
+../Core/Src/LEDConfigMenu.c:46:6:LEDMenu_Init	24	static
+../Core/Src/LEDConfigMenu.c:64:6:LEDMenu_UpdateState	32	static
+../Core/Src/LEDConfigMenu.c:231:6:LEDMenu_UpdateDisplay	32	static
+../Core/Src/LEDConfigMenu.c:322:20:LEDStrips_Update_StripColorCounter	16	static
+../Core/Src/LEDConfigMenu.c:327:6:LEDStrips_Init	8	static
+../Core/Src/LEDConfigMenu.c:343:6:LEDStrips_Update	16	static
