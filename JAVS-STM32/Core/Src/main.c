@@ -85,7 +85,7 @@ volatile uint8_t FFT_CallbackFlag;
 
 volatile uint16_t ADC_ReadBuffer[FFT_NUM_SAMPLES * 2];
 
-float32_t FFT_OutputBuffer[FFT_NUM_SAMPLES];
+float32_t FFT_OutputBuffer[FFT_NUM_SAMPLES + 1];
 
 volatile float32_t FFT_InputDoubleBuffer[FFT_NUM_SAMPLES * 2];
 float32_t *FFT_InputBufferLower = (float32_t*) FFT_InputDoubleBuffer;
@@ -161,43 +161,43 @@ void USB_PrintDebug(const char *str)
 /* USER CODE END 0 */
 
 /**
- * @brief  The application entry point.
- * @retval int
- */
+  * @brief  The application entry point.
+  * @retval int
+  */
 int main(void)
 {
-	/* USER CODE BEGIN 1 */
+  /* USER CODE BEGIN 1 */
 
-	/* USER CODE END 1 */
+  /* USER CODE END 1 */
 
-	/* MCU Configuration--------------------------------------------------------*/
+  /* MCU Configuration--------------------------------------------------------*/
 
-	/* Reset of all peripherals, Initializes the Flash interface and the Systick. */
-	HAL_Init();
+  /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
+  HAL_Init();
 
-	/* USER CODE BEGIN Init */
+  /* USER CODE BEGIN Init */
 
-	/* USER CODE END Init */
+  /* USER CODE END Init */
 
-	/* Configure the system clock */
-	SystemClock_Config();
+  /* Configure the system clock */
+  SystemClock_Config();
 
-	/* USER CODE BEGIN SysInit */
+  /* USER CODE BEGIN SysInit */
 
-	/* USER CODE END SysInit */
+  /* USER CODE END SysInit */
 
-	/* Initialize all configured peripherals */
-	MX_GPIO_Init();
-	MX_DMA_Init();
-	MX_ADC1_Init();
-	MX_TIM2_Init();
-	MX_TIM3_Init();
-	MX_TIM4_Init();
-	MX_USB_DEVICE_Init();
-	MX_I2C1_Init();
-	MX_USART1_UART_Init();
-	MX_TIM11_Init();
-	/* USER CODE BEGIN 2 */
+  /* Initialize all configured peripherals */
+  MX_GPIO_Init();
+  MX_DMA_Init();
+  MX_ADC1_Init();
+  MX_TIM2_Init();
+  MX_TIM3_Init();
+  MX_TIM4_Init();
+  MX_USB_DEVICE_Init();
+  MX_I2C1_Init();
+  MX_USART1_UART_Init();
+  MX_TIM11_Init();
+  /* USER CODE BEGIN 2 */
 
 	/*
 	 * USB Transmission safety stuff
@@ -211,6 +211,8 @@ int main(void)
 
 	arm_rfft_fast_instance_f32 fft_Instance;
 	arm_rfft_fast_init_f32(&fft_Instance, FFT_NUM_SAMPLES);
+
+	uint32_t fftTransformsCompleted = 0, fftTransformsCompletedOld = 0;
 
 	/*
 	 * LCD 20x04 I2C
@@ -238,7 +240,17 @@ int main(void)
 	// ms interrupt timer
 	HAL_TIM_Base_Start_IT(&htim11);
 
-	// Start ADC DMA
+	/*
+	 * Init UART for continuous FFT Data Stream
+	 */
+	*((uint32_t*) &FFT_OutputBuffer[FFT_NUM_SAMPLES]) = 0x55555555;
+	uint8_t uartTxSkipCounter = 0;
+	uint32_t uartTxStarted = 0, uartTxStartedOld = 0;
+	uint32_t uartTxMissed = 0, uartTxMissedOld = 0;
+
+	/*
+	 * ADC DMA init
+	 */
 	ADC_CallbackCounter = 0;
 	uint32_t adcCallbackCounterOld = 0;
 	ADC_CallbackResultsSkippedCounter = 0;
@@ -247,28 +259,20 @@ int main(void)
 	HAL_ADC_Start_DMA(&hadc1, (uint32_t*) ADC_ReadBuffer, FFT_NUM_SAMPLES * 2);
 
 	/*
-	 * Loop Counters etc
-	 */
-
-	uint32_t fftTransformsCompleted = 0, fftTransformsCompletedOld = 0;
-
-	/*
-	 * Timing main loop stuff
+	 * Timing main loop
 	 */
 	uint32_t timerLast = HAL_GetTick(), timerNow;
 
-	float fdebug1 = 0.0f, fdebug2 = 0.0f, fdebug3 = 0.0f, fdebug4 = 0.0f;
-
 	volatile uint8_t FFT_Print_Output = 0; // change via debugger to enable fft output; dont forget breakpoints!
-	/* USER CODE END 2 */
+  /* USER CODE END 2 */
 
-	/* Infinite loop */
-	/* USER CODE BEGIN WHILE */
+  /* Infinite loop */
+  /* USER CODE BEGIN WHILE */
 	while (1)
 	{
-		/* USER CODE END WHILE */
+    /* USER CODE END WHILE */
 
-		/* USER CODE BEGIN 3 */
+    /* USER CODE BEGIN 3 */
 
 		// do fft
 		if (FFT_CallbackFlag != FFT_NODATA)
@@ -293,10 +297,17 @@ int main(void)
 				USB_PrintDebugForce(USB_TxBuffer);
 			}
 
-			fdebug1 = FFT_OutputBuffer[0];
-			fdebug2 = FFT_OutputBuffer[1];
-			fdebug3 = FFT_OutputBuffer[FFT_NUM_SAMPLES - 2];
-			fdebug4 = FFT_OutputBuffer[FFT_NUM_SAMPLES - 1];
+			uartTxSkipCounter++;
+			if(uartTxSkipCounter >= UART_TXSKIP)
+			{
+				if (HAL_UART_Transmit_DMA(&huart1, (uint8_t*) FFT_OutputBuffer, (FFT_NUM_SAMPLES + 1) * sizeof(float32_t)) != HAL_BUSY)
+					uartTxStarted++;
+				else
+					uartTxMissed++;
+
+				uartTxSkipCounter = 0;
+			}
+
 
 			fftTransformsCompleted++;
 		}
@@ -367,58 +378,64 @@ int main(void)
 				adcCallbackResultsSkippedCounterOld = ADC_CallbackResultsSkippedCounter;
 			}
 
+			sprintf(USB_TxBuffer, "1/s: FFT = %lu , ADC = %lu , UART = %lu (%lu)\r\n", fftTransformsCompleted - fftTransformsCompletedOld, ADC_CallbackCounter - adcCallbackCounterOld, uartTxStarted - uartTxStartedOld, uartTxMissed - uartTxMissedOld);
+			USB_PrintDebug(USB_TxBuffer);
+
 			adcCallbackCounterOld = ADC_CallbackCounter;
 			fftTransformsCompletedOld = fftTransformsCompleted;
+			uartTxStartedOld = uartTxStarted;
+			uartTxMissedOld = uartTxMissed;
 
 			timerLast = timerNow;
 		}
 
 	}
-	/* USER CODE END 3 */
+  /* USER CODE END 3 */
 }
 
 /**
- * @brief System Clock Configuration
- * @retval None
- */
+  * @brief System Clock Configuration
+  * @retval None
+  */
 void SystemClock_Config(void)
 {
-	RCC_OscInitTypeDef RCC_OscInitStruct = { 0 };
-	RCC_ClkInitTypeDef RCC_ClkInitStruct = { 0 };
+  RCC_OscInitTypeDef RCC_OscInitStruct = {0};
+  RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
 
-	/** Configure the main internal regulator output voltage
-	 */
-	__HAL_RCC_PWR_CLK_ENABLE();
-	__HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE2);
+  /** Configure the main internal regulator output voltage
+  */
+  __HAL_RCC_PWR_CLK_ENABLE();
+  __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE2);
 
-	/** Initializes the RCC Oscillators according to the specified parameters
-	 * in the RCC_OscInitTypeDef structure.
-	 */
-	RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
-	RCC_OscInitStruct.HSEState = RCC_HSE_ON;
-	RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
-	RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
-	RCC_OscInitStruct.PLL.PLLM = 25;
-	RCC_OscInitStruct.PLL.PLLN = 336;
-	RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV4;
-	RCC_OscInitStruct.PLL.PLLQ = 7;
-	if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
-	{
-		Error_Handler();
-	}
+  /** Initializes the RCC Oscillators according to the specified parameters
+  * in the RCC_OscInitTypeDef structure.
+  */
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
+  RCC_OscInitStruct.HSEState = RCC_HSE_ON;
+  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
+  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
+  RCC_OscInitStruct.PLL.PLLM = 25;
+  RCC_OscInitStruct.PLL.PLLN = 336;
+  RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV4;
+  RCC_OscInitStruct.PLL.PLLQ = 7;
+  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
+  {
+    Error_Handler();
+  }
 
-	/** Initializes the CPU, AHB and APB buses clocks
-	 */
-	RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK | RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;
-	RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
-	RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
-	RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
-	RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
+  /** Initializes the CPU, AHB and APB buses clocks
+  */
+  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
+                              |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
+  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
+  RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
+  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
+  RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
 
-	if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2) != HAL_OK)
-	{
-		Error_Handler();
-	}
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2) != HAL_OK)
+  {
+    Error_Handler();
+  }
 }
 
 /* USER CODE BEGIN 4 */
@@ -515,6 +532,7 @@ void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef *hadc)
 		FFT_CallbackFlag = FFT_CALLBACK_HALF;
 	}
 }
+
 // IRQ end
 
 // Reset all button flags
@@ -528,18 +546,18 @@ void Buttons_ResetFlags()
 /* USER CODE END 4 */
 
 /**
- * @brief  This function is executed in case of error occurrence.
- * @retval None
- */
+  * @brief  This function is executed in case of error occurrence.
+  * @retval None
+  */
 void Error_Handler(void)
 {
-	/* USER CODE BEGIN Error_Handler_Debug */
+  /* USER CODE BEGIN Error_Handler_Debug */
 	/* User can add his own implementation to report the HAL error return state */
 	__disable_irq();
 	while (1)
 	{
 	}
-	/* USER CODE END Error_Handler_Debug */
+  /* USER CODE END Error_Handler_Debug */
 }
 
 #ifdef  USE_FULL_ASSERT
