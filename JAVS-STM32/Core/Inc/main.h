@@ -68,10 +68,10 @@ void Buttons_ResetFlags();
 #define LED_ONBOARD_GPIO_Port GPIOC
 #define BTN_ONBOARD_Pin GPIO_PIN_0
 #define BTN_ONBOARD_GPIO_Port GPIOA
-#define LED_1_G_Pin GPIO_PIN_0
-#define LED_1_G_GPIO_Port GPIOB
-#define LED_1_B_Pin GPIO_PIN_1
+#define LED_1_B_Pin GPIO_PIN_0
 #define LED_1_B_GPIO_Port GPIOB
+#define LED_1_G_Pin GPIO_PIN_1
+#define LED_1_G_GPIO_Port GPIOB
 #define LED_1_R_Pin GPIO_PIN_10
 #define LED_1_R_GPIO_Port GPIOB
 #define BTN_C_Pin GPIO_PIN_12

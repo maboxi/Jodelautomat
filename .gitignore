@@ -54,3 +54,7 @@ dkms.conf
 
 # Excel edit
 ~$*.xlsx
+
+
+# KiCAD Backups
+-backups/*.ziü
