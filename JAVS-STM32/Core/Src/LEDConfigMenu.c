@@ -327,17 +327,17 @@ static inline void LEDStrips_Update_StripColorCounter(uint8_t strip, uint8_t col
 void LEDStrips_Init()
 {
 	// Strip 1
-	LEDStrips_Config_Counter[0][0] = &TIM2->CCR1;
-	LEDStrips_Config_Counter[0][1] = &TIM2->CCR2;
-	LEDStrips_Config_Counter[0][2] = &TIM2->CCR3;
+	LEDStrips_Config_Counter[0][0] = &TIM2->CCR3;
+	LEDStrips_Config_Counter[0][1] = &TIM3->CCR4;
+	LEDStrips_Config_Counter[0][2] = &TIM3->CCR3;
 
 	LEDStrips_Update_StripColorCounter(0, 0, 0);
 	LEDStrips_Update_StripColorCounter(0, 1, 0);
 	LEDStrips_Update_StripColorCounter(0, 2, 0);
 
-	HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
-	HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_2);
 	HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_3);
+	HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_4);
+	HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_3);
 }
 
 void LEDStrips_Update()

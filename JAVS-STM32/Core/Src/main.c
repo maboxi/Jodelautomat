@@ -26,6 +26,7 @@
 #include "usb_device.h"
 #include "gpio.h"
 
+
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "arm_math.h"
@@ -300,10 +301,15 @@ int main(void)
 			uartTxSkipCounter++;
 			if(uartTxSkipCounter >= UART_TXSKIP)
 			{
+				/*
 				if (HAL_UART_Transmit_DMA(&huart1, (uint8_t*) FFT_OutputBuffer, (FFT_NUM_SAMPLES + 1) * sizeof(float32_t)) != HAL_BUSY)
 					uartTxStarted++;
 				else
 					uartTxMissed++;
+				*/
+
+				char testBuf[] = "UART Test Transmission...\r\n";
+				HAL_UART_Transmit_DMA(&huart1, (uint8_t*) testBuf, strlen(testBuf));
 
 				uartTxSkipCounter = 0;
 			}
