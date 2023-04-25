@@ -26,7 +26,6 @@
 #include "usb_device.h"
 #include "gpio.h"
 
-
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "arm_math.h"
@@ -94,6 +93,7 @@ float32_t *FFT_InputBufferUpper = (float32_t*) &FFT_InputDoubleBuffer[FFT_NUM_SA
 
 volatile uint32_t ADC_CallbackCounter;
 volatile uint32_t ADC_CallbackResultsSkippedCounter;
+volatile uint16_t ADC_ReadMin, ADC_ReadMax;
 
 /*
  * USB Transmission
@@ -256,8 +256,17 @@ int main(void)
 	uint32_t adcCallbackCounterOld = 0;
 	ADC_CallbackResultsSkippedCounter = 0;
 	uint32_t adcCallbackResultsSkippedCounterOld = 0;
+	ADC_ReadMax = 0;
+	ADC_ReadMin = 0 - 1;
 
 	HAL_ADC_Start_DMA(&hadc1, (uint32_t*) ADC_ReadBuffer, FFT_NUM_SAMPLES * 2);
+
+	float32_t bassHistory[10];
+	for(uint8_t i = 0; i < 10; i++)
+		bassHistory[i] = 0.0f;
+	float32_t bassAvg = 0.0f;
+
+	uint8_t bassHistoryCounter = 0;
 
 	/*
 	 * Timing main loop
@@ -299,21 +308,49 @@ int main(void)
 			}
 
 			uartTxSkipCounter++;
-			if(uartTxSkipCounter >= UART_TXSKIP)
+			if (uartTxSkipCounter >= UART_TXSKIP)
 			{
-				/*
 				if (HAL_UART_Transmit_DMA(&huart1, (uint8_t*) FFT_OutputBuffer, (FFT_NUM_SAMPLES + 1) * sizeof(float32_t)) != HAL_BUSY)
 					uartTxStarted++;
 				else
 					uartTxMissed++;
-				*/
-
-				char testBuf[] = "UART Test Transmission...\r\n";
-				HAL_UART_Transmit_DMA(&huart1, (uint8_t*) testBuf, strlen(testBuf));
 
 				uartTxSkipCounter = 0;
 			}
 
+			uint16_t fftPeak = 0;
+			float32_t curValue, curPeak = 0.0f, bassMax = 0.0;
+
+			for (uint16_t i = 1; i < FFT_NUM_SAMPLES; i++)
+			{
+				if(FFT_OutputBuffer[i] < 0.0f)
+					FFT_OutputBuffer[i] = -FFT_OutputBuffer[i];
+
+				if(i < 10)
+				{
+					if(FFT_OutputBuffer[i] > bassMax)
+						bassMax = FFT_OutputBuffer[i];
+				}
+			}
+
+			bassAvg -= bassHistory[bassHistoryCounter];
+			bassAvg += bassMax;
+			bassHistory[bassHistoryCounter] = bassMax;
+			bassHistoryCounter = (bassHistoryCounter + 1) % 7;
+
+			uint16_t bassVal = 0;
+
+			if(bassAvg > 1500.0f)
+			{
+				if(bassAvg > 3000.0f)
+					bassVal = LEDSTRIPS_MAX_PWMDC;
+				else
+					bassVal = (uint16_t) ((bassAvg - 2000.0f) * 0.75f);
+			}
+			else
+				bassVal = LEDSTRIPS_MIN_PWMDC;
+
+			LEDStrips_UpdateFFT(bassVal, 0, 500);
 
 			fftTransformsCompleted++;
 		}
@@ -384,7 +421,7 @@ int main(void)
 				adcCallbackResultsSkippedCounterOld = ADC_CallbackResultsSkippedCounter;
 			}
 
-			sprintf(USB_TxBuffer, "1/s: FFT = %lu , ADC = %lu , UART = %lu (%lu)\r\n", fftTransformsCompleted - fftTransformsCompletedOld, ADC_CallbackCounter - adcCallbackCounterOld, uartTxStarted - uartTxStartedOld, uartTxMissed - uartTxMissedOld);
+			sprintf(USB_TxBuffer, "1/s: FFT = %lu , ADC = %lu (%u %u), UART = %lu (%lu)\r\n", fftTransformsCompleted - fftTransformsCompletedOld, ADC_CallbackCounter - adcCallbackCounterOld, ADC_ReadMin, ADC_ReadMax, uartTxStarted - uartTxStartedOld, uartTxMissed - uartTxMissedOld);
 			USB_PrintDebug(USB_TxBuffer);
 
 			adcCallbackCounterOld = ADC_CallbackCounter;
@@ -509,9 +546,17 @@ void IRQ_TIM11()
 
 static inline void TransformFFTData(uint16_t offset)
 {
+	ADC_ReadMin = 0 - 1;
+	ADC_ReadMax = 0;
+
 	for (uint16_t i = 0; i < FFT_NUM_SAMPLES; i++)
 	{
 		FFT_InputDoubleBuffer[i + offset] = (float) ADC_ReadBuffer[i + offset] * (2.0f / 4096.0f) - 1.0f;
+
+		if (ADC_ReadBuffer[i + offset] < ADC_ReadMin)
+			ADC_ReadMin = ADC_ReadBuffer[i + offset];
+		if (ADC_ReadBuffer[i + offset] > ADC_ReadMax)
+			ADC_ReadMax = ADC_ReadBuffer[i + offset];
 	}
 }
 
