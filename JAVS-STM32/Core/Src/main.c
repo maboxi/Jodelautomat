@@ -262,7 +262,7 @@ int main(void)
 	HAL_ADC_Start_DMA(&hadc1, (uint32_t*) ADC_ReadBuffer, FFT_NUM_SAMPLES * 2);
 
 	float32_t bassHistory[10];
-	for(uint8_t i = 0; i < 10; i++)
+	for (uint8_t i = 0; i < 10; i++)
 		bassHistory[i] = 0.0f;
 	float32_t bassAvg = 0.0f;
 
@@ -323,12 +323,12 @@ int main(void)
 
 			for (uint16_t i = 1; i < FFT_NUM_SAMPLES; i++)
 			{
-				if(FFT_OutputBuffer[i] < 0.0f)
+				if (FFT_OutputBuffer[i] < 0.0f)
 					FFT_OutputBuffer[i] = -FFT_OutputBuffer[i];
 
-				if(i < 10)
+				if (i < 10)
 				{
-					if(FFT_OutputBuffer[i] > bassMax)
+					if (FFT_OutputBuffer[i] > bassMax)
 						bassMax = FFT_OutputBuffer[i];
 				}
 			}
@@ -340,9 +340,9 @@ int main(void)
 
 			uint16_t bassVal = 0;
 
-			if(bassAvg > 1500.0f)
+			if (bassAvg > 1500.0f)
 			{
-				if(bassAvg > 3000.0f)
+				if (bassAvg > 3000.0f)
 					bassVal = LEDSTRIPS_MAX_PWMDC;
 				else
 					bassVal = (uint16_t) ((bassAvg - 2000.0f) * 0.75f);
