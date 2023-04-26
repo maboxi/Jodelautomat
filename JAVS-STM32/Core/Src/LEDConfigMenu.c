@@ -25,19 +25,17 @@ volatile uint32_t *LEDStrips_Config_Counter[LED_NUM_STRIPS][LED_NUM_COLORS];
 
 uint8_t LEDSelectionMenu_Memory[LEDMENU_NUM];
 
-const char LED_StripNames_Long[LED_NUM_STRIPS][9] = { "Strip 01"};
-const char LED_StripNames_Short[LED_NUM_STRIPS][4] = { "S01"};
+const char LED_StripNames_Long[LED_NUM_STRIPS][9] = { "Strip 01", "Unten", "Vorne" };
+const char LED_StripNames_Short[LED_NUM_STRIPS][4] = { "S01", "U", "V" };
 
 const char LED_ColorNames_Long[LED_NUM_COLORS][6] = { "Red", "Green", "Blue" };
 const char LED_ColorNames_Short[LED_NUM_COLORS][2] = { "R", "G", "B" };
 
 const char LED_ConfigNames[LEDCONFIG_NUM][5] = { "Off", "On", "Low", "Mid", "High" };
 
-
 /*
  * Output variables
  */
-
 
 /*
  * Menu functions
@@ -131,7 +129,6 @@ void LEDMenu_UpdateState(LEDMenu_ButtonAction action, LCD2004_I2C *lcd)
 			LEDStrips_Update();
 
 			LEDMenu_StatusFlags |= LEDMENU_FLAG_STATECHANGE;
-
 
 			sprintf(USB_TxBuffer, "led config changed: strip %s %s -> %s\r\n", LED_StripNames_Long[Selection_Strip], LED_ColorNames_Long[Selection_Color], LED_ConfigNames[Selection_Config]);
 			USB_PrintDebug(USB_TxBuffer);
@@ -249,7 +246,7 @@ void LEDMenu_UpdateDisplay(LCD2004_I2C *lcd)
 		for (uint8_t menuNr = 0; menuNr < 3; menuNr++)
 		{
 			int8_t stripNamesIndex = (LEDSelectionMenu_Memory[LEDMENU_STRIP_SELECTION] + menuNr - 1 + LED_NUM_STRIPS) % LED_NUM_STRIPS;
-			sprintf(lcd->printBuffer, "%s  ", LED_StripNames_Long[stripNamesIndex]);
+			sprintf(lcd->printBuffer, "%s    ", LED_StripNames_Long[stripNamesIndex]);
 			LCD_SetCursor(lcd, menuNr + 1, 6);
 			LCD_DisplayString2(lcd, lcd->printBuffer);
 		}
@@ -273,7 +270,6 @@ void LEDMenu_UpdateDisplay(LCD2004_I2C *lcd)
 
 			LCD_SetCursor(lcd, menuNr + 1, 8);
 			LCD_DisplayString2(lcd, lcd->printBuffer);
-
 
 			sprintf(lcd->printBuffer, "(%s)", LED_ConfigNames[LEDStrips_Config[stripIndex][colorNamesIndex]]);
 			LCD_SetCursor(lcd, menuNr + 1, 20 - strlen(lcd->printBuffer));
@@ -326,27 +322,65 @@ static inline void LEDStrips_Update_StripColorCounter(uint8_t strip, uint8_t col
 
 void LEDStrips_Init()
 {
-	// Strip 1
-	LEDStrips_Config_Counter[0][0] = &TIM2->CCR1;
-	LEDStrips_Config_Counter[0][1] = &TIM2->CCR2;
-	LEDStrips_Config_Counter[0][2] = &TIM2->CCR3;
+	/*
+	 * Strip 1
+	 *
+	 * R: TIM2 CH3
+	 * G: TIM3 CH4
+	 * B: TIM3 CH3
+	 */
+	LEDStrips_Config_Counter[0][0] = &TIM2->CCR3;
+	LEDStrips_Config_Counter[0][1] = &TIM3->CCR4;
+	LEDStrips_Config_Counter[0][2] = &TIM3->CCR3;
 
-	LEDStrips_Update_StripColorCounter(0, 0, 0);
-	LEDStrips_Update_StripColorCounter(0, 1, 0);
-	LEDStrips_Update_StripColorCounter(0, 2, 0);
+	HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_3);
+	HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_4);
+	HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_3);
+
+	/*
+	 * Strip 2
+	 *
+	 * R: TIM2 CH1
+	 * G: TIM2 CH2
+	 * B: TIM3 CH1
+	 */
+	LEDStrips_Config_Counter[1][0] = &TIM2->CCR1;
+	LEDStrips_Config_Counter[1][1] = &TIM2->CCR2;
+	LEDStrips_Config_Counter[1][2] = &TIM3->CCR1;
 
 	HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
 	HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_2);
-	HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_3);
+	HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1);
+
+	/*
+	 * Strip 3
+	 *
+	 * R: TIM3 CH2
+	 * G: TIM4 CH1
+	 * B: TIM4 CH2
+	 */
+	LEDStrips_Config_Counter[2][0] = &TIM3->CCR2;
+	LEDStrips_Config_Counter[2][1] = &TIM4->CCR1;
+	LEDStrips_Config_Counter[2][2] = &TIM4->CCR2;
+
+	HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_2);
+	HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_1);
+	HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_2);
+
+	LEDStrips_Config[0][0] = LEDCONFIG_PWM1;
+	LEDStrips_Config[0][1] = LEDCONFIG_PWM2;
+	LEDStrips_Config[0][2] = LEDCONFIG_PWM3;
+
+	LEDStrips_Update();
 }
 
 void LEDStrips_Update()
 {
-	for(uint8_t stripIndex = 0; stripIndex < LED_NUM_STRIPS; stripIndex++)
+	for (uint8_t stripIndex = 0; stripIndex < LED_NUM_STRIPS; stripIndex++)
 	{
-		for(uint8_t colorIndex = 0; colorIndex < LED_NUM_COLORS; colorIndex++)
+		for (uint8_t colorIndex = 0; colorIndex < LED_NUM_COLORS; colorIndex++)
 		{
-			switch(LEDStrips_Config[stripIndex][colorIndex])
+			switch (LEDStrips_Config[stripIndex][colorIndex])
 			{
 			case LEDCONFIG_OFF:
 				LEDStrips_Update_StripColorCounter(stripIndex, colorIndex, 0);
@@ -362,6 +396,37 @@ void LEDStrips_Update()
 				break;
 			case LEDCONFIG_PWM3:
 				LEDStrips_Update_StripColorCounter(stripIndex, colorIndex, LEDSTRIPS_HIGH_PWMDC);
+				break;
+			case LEDCONFIG_NUM:
+			default:
+				break;
+			}
+		}
+	}
+}
+
+void LEDStrips_UpdateFFT(uint16_t low, uint16_t mid, uint16_t high)
+{
+	for (uint8_t stripIndex = 0; stripIndex < LED_NUM_STRIPS; stripIndex++)
+	{
+		for (uint8_t colorIndex = 0; colorIndex < LED_NUM_COLORS; colorIndex++)
+		{
+			switch (LEDStrips_Config[stripIndex][colorIndex])
+			{
+			case LEDCONFIG_OFF:
+				LEDStrips_Update_StripColorCounter(stripIndex, colorIndex, 0);
+				break;
+			case LEDCONFIG_ON:
+				LEDStrips_Update_StripColorCounter(stripIndex, colorIndex, LEDSTRIPS_MAX_PWMDC);
+				break;
+			case LEDCONFIG_PWM1:
+				LEDStrips_Update_StripColorCounter(stripIndex, colorIndex, low);
+				break;
+			case LEDCONFIG_PWM2:
+				LEDStrips_Update_StripColorCounter(stripIndex, colorIndex, mid);
+				break;
+			case LEDCONFIG_PWM3:
+				LEDStrips_Update_StripColorCounter(stripIndex, colorIndex, high);
 				break;
 			case LEDCONFIG_NUM:
 			default:

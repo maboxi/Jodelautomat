@@ -37,6 +37,7 @@
 *.hex
 
 # Debug files
+Debug/
 *.dSYM/
 *.su
 *.idb
@@ -54,3 +55,7 @@ dkms.conf
 
 # Excel edit
 ~$*.xlsx
+
+
+# KiCAD Backups
+-backups/*.ziü
