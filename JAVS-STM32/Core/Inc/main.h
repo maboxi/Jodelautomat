@@ -95,10 +95,11 @@ void Buttons_ResetFlags();
 /* USER CODE BEGIN Private defines */
 
 #define USB_TX_BUFFERSIZE 512
+#define USB_RX_BUFFERSIZE 64
 
 #define LCD_TIMEOUT 20000
 
-#define UART_TXSKIP 10
+#define UART_TXSKIP 0
 
 /*
  * Button Defines
@@ -117,6 +118,10 @@ void Buttons_ResetFlags();
 extern char USB_TxBuffer[USB_TX_BUFFERSIZE];
 
 extern volatile uint32_t LCD_TimeoutCounter;
+
+extern volatile uint8_t CDCReceiveFlag;
+extern volatile char USB_RxBuffer[];
+extern volatile uint32_t CDCReceiveDiscarded;
 /* USER CODE END Private defines */
 
 #ifdef __cplusplus

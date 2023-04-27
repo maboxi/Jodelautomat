@@ -95,11 +95,16 @@ volatile uint32_t ADC_CallbackCounter;
 volatile uint32_t ADC_CallbackResultsSkippedCounter;
 volatile uint16_t ADC_ReadMin, ADC_ReadMax;
 
+volatile uint8_t FFTPrintDebugOnceFlag;
+
 /*
- * USB Transmission
+ * USB Transmission and Receive
  */
 char USB_TxBuffer[USB_TX_BUFFERSIZE];
+volatile char USB_RxBuffer[USB_RX_BUFFERSIZE];
 
+volatile uint8_t CDCReceiveFlag;
+volatile uint32_t CDCReceiveDiscarded;
 /*
  * Button Memory
  */
@@ -201,9 +206,11 @@ int main(void)
   /* USER CODE BEGIN 2 */
 
 	/*
-	 * USB Transmission safety stuff
+	 * USB transmission and receiving
 	 */
 	USB_TxBuffer[USB_TX_BUFFERSIZE - 1] = 0;
+	CDCReceiveFlag = 0;
+	CDCReceiveDiscarded = 0;
 
 	/*
 	 * FFT Buffers and Instance
@@ -244,7 +251,7 @@ int main(void)
 	/*
 	 * Init UART for continuous FFT Data Stream
 	 */
-	*((uint32_t*) &FFT_OutputBuffer[FFT_NUM_SAMPLES]) = 0x55555555;
+	*((uint32_t*) &FFT_OutputBuffer[FFT_NUM_SAMPLES]) = 0x55550A0D; // set end of buffer to UU\r\n
 	uint8_t uartTxSkipCounter = 0;
 	uint32_t uartTxStarted = 0, uartTxStartedOld = 0;
 	uint32_t uartTxMissed = 0, uartTxMissedOld = 0;
@@ -284,6 +291,20 @@ int main(void)
 
     /* USER CODE BEGIN 3 */
 
+		/*
+		 * Handle USB CDC receiving
+		 */
+
+		if(CDCReceiveFlag)
+		{
+			if(strncmp((const char*)USB_RxBuffer, "sendfft", 7) == 0)
+			{
+				FFTPrintDebugOnceFlag = 1;
+			}
+
+			CDCReceiveFlag = 0;
+		}
+
 		// do fft
 		if (FFT_CallbackFlag != FFT_NODATA)
 		{
@@ -292,8 +313,9 @@ int main(void)
 
 			arm_rfft_fast_f32(&fft_Instance, fft_InputBuffer, FFT_OutputBuffer, 0);
 
-			if (FFT_Print_Output) // change via debugger to enable fft output; dont forget breakpoints!
+			if (FFT_Print_Output || FFTPrintDebugOnceFlag) // change via debugger to enable fft output; dont forget breakpoints!
 			{
+				HAL_GPIO_WritePin(LED_ONBOARD_GPIO_Port, LED_ONBOARD_Pin, GPIO_PIN_RESET);
 				sprintf(USB_TxBuffer, "\r\n-- FFT Data START --\r\n");
 				USB_PrintDebugForce(USB_TxBuffer);
 
@@ -305,10 +327,13 @@ int main(void)
 
 				sprintf(USB_TxBuffer, "\r\n-- FFT Data END --\r\n");
 				USB_PrintDebugForce(USB_TxBuffer);
+
+				HAL_GPIO_WritePin(LED_ONBOARD_GPIO_Port, LED_ONBOARD_Pin, GPIO_PIN_SET);
+				FFTPrintDebugOnceFlag = 0;
 			}
 
 			uartTxSkipCounter++;
-			if (uartTxSkipCounter >= UART_TXSKIP)
+			if (uartTxSkipCounter > UART_TXSKIP)
 			{
 				if (HAL_UART_Transmit_DMA(&huart1, (uint8_t*) FFT_OutputBuffer, (FFT_NUM_SAMPLES + 1) * sizeof(float32_t)) != HAL_BUSY)
 					uartTxStarted++;
@@ -318,8 +343,7 @@ int main(void)
 				uartTxSkipCounter = 0;
 			}
 
-			uint16_t fftPeak = 0;
-			float32_t curValue, curPeak = 0.0f, bassMax = 0.0;
+			float32_t bassMax = 0.0;
 
 			for (uint16_t i = 1; i < FFT_NUM_SAMPLES; i++)
 			{
