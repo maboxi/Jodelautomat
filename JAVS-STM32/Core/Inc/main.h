@@ -94,11 +94,26 @@ void Buttons_ResetFlags();
 #define LED_3_B_GPIO_Port GPIOB
 /* USER CODE BEGIN Private defines */
 
+/*
+ *
+ */
 #define USB_TX_BUFFERSIZE 512
+#define USB_RX_BUFFERSIZE 64
 
 #define LCD_TIMEOUT 20000
 
-#define UART_TXSKIP 10
+#define UART_TXSKIP 0
+
+/*
+ * FFT Defines
+ */
+#define FFT_NUM_SAMPLES 4096
+#define FFT_UARTBUFFERSIZE 512
+#define FFT_UARTBUFFERFLAGBYTES 8
+
+#define FFT_NODATA 		(1<<0)
+#define FFT_CALLBACK_HALF 	(1<<1)
+#define FFT_CALLBACK_FULL 	(1<<2)
 
 /*
  * Button Defines
@@ -115,8 +130,12 @@ void Buttons_ResetFlags();
  */
 
 extern char USB_TxBuffer[USB_TX_BUFFERSIZE];
+extern volatile char USB_RxBuffer[USB_RX_BUFFERSIZE];
 
 extern volatile uint32_t LCD_TimeoutCounter;
+
+extern volatile uint8_t CDCReceiveFlag;
+extern volatile uint32_t CDCReceiveDiscarded;
 /* USER CODE END Private defines */
 
 #ifdef __cplusplus
