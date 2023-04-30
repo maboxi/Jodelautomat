@@ -78,19 +78,15 @@
 volatile uint8_t FFT_CallbackFlag;
 
 volatile uint16_t ADC_ReadBuffer[FFT_NUM_SAMPLES * 2];
-
+float32_t FFT_InputBuffer[FFT_NUM_SAMPLES];
 float32_t FFT_OutputBuffer[FFT_NUM_SAMPLES];
-uint8_t FFT_UARTBuffer[FFT_UARTBUFFERSIZE * sizeof(float32_t) + FFT_UARTBUFFERFLAGBYTES];
-
-volatile float32_t FFT_InputDoubleBuffer[FFT_NUM_SAMPLES * 2];
-float32_t *FFT_InputBufferLower = (float32_t*) FFT_InputDoubleBuffer;
-float32_t *FFT_InputBufferUpper = (float32_t*) &FFT_InputDoubleBuffer[FFT_NUM_SAMPLES];
 
 volatile uint32_t ADC_CallbackCounter;
 volatile uint32_t ADC_CallbackResultsSkippedCounter;
 volatile uint16_t ADC_ReadMin, ADC_ReadMax;
 
 volatile uint8_t FFTPrintDebugOnceFlag;
+uint8_t FFT_UARTBuffer[FFT_UARTBUFFERSIZE * sizeof(float32_t) + FFT_UARTBUFFERFLAGBYTES];
 
 /*
  * USB Transmission and Receive
@@ -196,8 +192,8 @@ int main(void)
   MX_TIM4_Init();
   MX_USB_DEVICE_Init();
   MX_I2C1_Init();
-  MX_USART1_UART_Init();
   MX_TIM11_Init();
+  MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
 
 	/*
@@ -212,8 +208,8 @@ int main(void)
 	 */
 	FFT_CallbackFlag = FFT_NODATA;
 
-	arm_rfft_fast_instance_f32 fft_Instance;
-	arm_rfft_fast_init_f32(&fft_Instance, FFT_NUM_SAMPLES);
+	arm_rfft_fast_instance_f32 rfftf_Instance;
+	arm_rfft_fast_init_f32(&rfftf_Instance, FFT_NUM_SAMPLES);
 
 	uint32_t fftTransformsCompleted = 0, fftTransformsCompletedOld = 0;
 
@@ -305,10 +301,68 @@ int main(void)
 		// do fft
 		if (FFT_CallbackFlag != FFT_NODATA)
 		{
-			FFT_CallbackFlag = FFT_NODATA;
-			float32_t *fft_InputBuffer = FFT_CallbackFlag == FFT_CALLBACK_HALF ? FFT_InputBufferLower : FFT_InputBufferUpper;
+			// convert adc readings
+			ADC_ReadMin = 0 - 1;
+			ADC_ReadMax = 0;
 
-			arm_rfft_fast_f32(&fft_Instance, fft_InputBuffer, FFT_OutputBuffer, 0);
+			uint16_t offset = 0;
+			if(FFT_CallbackFlag == FFT_CALLBACK_FULL)
+				offset = FFT_NUM_SAMPLES;
+
+			for (uint16_t i = 0; i < FFT_NUM_SAMPLES; i++)
+			{
+				//FFT_InputDoubleBuffer[i + offset] = ((float) ADC_ReadBuffer[i + offset] * 2.0f) / 4096.0f - 1.0f;
+				float reading = (float) ADC_ReadBuffer[i + offset];
+				float converted = (reading - 2048.0f) / 2048.0f;
+
+				FFT_InputBuffer[i] = converted;
+
+				if (ADC_ReadBuffer[i + offset] < ADC_ReadMin)
+					ADC_ReadMin = ADC_ReadBuffer[i + offset];
+				if (ADC_ReadBuffer[i + offset] > ADC_ReadMax)
+					ADC_ReadMax = ADC_ReadBuffer[i + offset];
+			}
+
+			// print adc readings
+			if (FFT_Print_Output || FFTPrintDebugOnceFlag) // change via debugger to enable fft output; dont forget breakpoints!
+			{
+				HAL_ADC_Stop_DMA(&hadc1);
+				HAL_GPIO_WritePin(LED_ONBOARD_GPIO_Port, LED_ONBOARD_Pin, GPIO_PIN_RESET);
+				sprintf(USB_TxBuffer, "\r\n-- ADC Data START --\r\n");
+				USB_PrintDebugForce(USB_TxBuffer);
+
+				for (uint32_t i = 0; i < FFT_NUM_SAMPLES; i++)
+				{
+					//sprintf(USB_TxBuffer, "%f ", FFT_OutputBuffer[i]);
+					//float32_t *fft_InputBuffer = FFT_CallbackFlag == FFT_CALLBACK_HALF ? FFT_InputBufferLower : FFT_InputBufferUpper;
+					if (FFT_CallbackFlag == FFT_CALLBACK_HALF)
+						sprintf(USB_TxBuffer, "%u ", ADC_ReadBuffer[i]);
+					else
+						sprintf(USB_TxBuffer, "%u ", ADC_ReadBuffer[FFT_NUM_SAMPLES + i]);
+
+					USB_PrintDebugForce(USB_TxBuffer);
+				}
+
+				sprintf(USB_TxBuffer, "\r\n-- /\\ Raw Data | Converted  \\/ --\r\n");
+				USB_PrintDebugForce(USB_TxBuffer);
+
+				for (uint32_t i = 0; i < FFT_NUM_SAMPLES; i++)
+				{
+					sprintf(USB_TxBuffer, "%f ", FFT_InputBuffer[i]);
+
+					USB_PrintDebugForce(USB_TxBuffer);
+				}
+
+				sprintf(USB_TxBuffer, "\r\n-- ADC Data END --\r\n");
+				USB_PrintDebugForce(USB_TxBuffer);
+
+				HAL_GPIO_WritePin(LED_ONBOARD_GPIO_Port, LED_ONBOARD_Pin, GPIO_PIN_SET);
+				HAL_ADC_Start_DMA(&hadc1, (uint32_t*) ADC_ReadBuffer, FFT_NUM_SAMPLES * 2);
+				//FFTPrintDebugOnceFlag = 0;
+			}
+
+			arm_rfft_fast_f32(&rfftf_Instance, FFT_InputBuffer, FFT_OutputBuffer, 0);
+			//arm_cfft_f32(arm_cfft_sR_f32_len4096, p1, ifftFlag, bitReverseFlag)
 
 			uartTxSkipCounter++;
 			if (uartTxSkipCounter > UART_TXSKIP)
@@ -317,8 +371,9 @@ int main(void)
 				{
 					// setup uart buffer because fft output buffer will be overwritten once next fft starts; add \n at the end for easier transmission check
 					memcpy((void*) FFT_UARTBuffer, (const void*) FFT_OutputBuffer, FFT_UARTBUFFERSIZE * sizeof(float32_t));
+					//memcpy((void*) FFT_UARTBuffer, (const void*) fft_InputBuffer, FFT_UARTBUFFERSIZE * sizeof(float32_t));
 
-					for(uint8_t i = 0; i < FFT_UARTBUFFERFLAGBYTES; i++)
+					for (uint8_t i = 0; i < FFT_UARTBUFFERFLAGBYTES; i++)
 						FFT_UARTBuffer[FFT_UARTBUFFERSIZE * sizeof(float32_t) + i] = 0x00;
 
 					if (HAL_UART_Transmit_DMA(&huart1, FFT_UARTBuffer, FFT_UARTBUFFERSIZE * sizeof(float32_t) + FFT_UARTBUFFERFLAGBYTES) != HAL_BUSY)
@@ -342,7 +397,7 @@ int main(void)
 				if (FFT_OutputBuffer[i] < 0.0f)
 					FFT_OutputBuffer[i] = -FFT_OutputBuffer[i];
 
-				if(FFT_OutputBuffer[i] > fftMax)
+				if (FFT_OutputBuffer[i] > fftMax)
 					fftMax = FFT_OutputBuffer[i];
 
 				if (i < 10)
@@ -361,6 +416,7 @@ int main(void)
 				for (uint32_t i = 0; i < FFT_NUM_SAMPLES; i++)
 				{
 					sprintf(USB_TxBuffer, "%f ", FFT_OutputBuffer[i]);
+
 					USB_PrintDebugForce(USB_TxBuffer);
 				}
 
@@ -391,6 +447,7 @@ int main(void)
 			LEDStrips_UpdateFFT(bassVal, 0, 500);
 
 			fftTransformsCompleted++;
+			FFT_CallbackFlag = FFT_NODATA;
 		}
 
 		// check if afk
@@ -581,30 +638,13 @@ void IRQ_TIM11()
 	}
 }
 
-// ADC & FFT data interrupts and transformation
-
-static inline void TransformFFTData(uint16_t offset)
-{
-	ADC_ReadMin = 0 - 1;
-	ADC_ReadMax = 0;
-
-	for (uint16_t i = 0; i < FFT_NUM_SAMPLES; i++)
-	{
-		FFT_InputDoubleBuffer[i + offset] = ((float) ADC_ReadBuffer[i + offset] * 2.0f) / 4096.0f - 1.0f;
-
-		if (ADC_ReadBuffer[i + offset] < ADC_ReadMin)
-			ADC_ReadMin = ADC_ReadBuffer[i + offset];
-		if (ADC_ReadBuffer[i + offset] > ADC_ReadMax)
-			ADC_ReadMax = ADC_ReadBuffer[i + offset];
-	}
-}
+// ADC interrupts
 
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
 {
 	if (hadc == &hadc1)
 	{
 		ADC_CallbackCounter++;
-		TransformFFTData(FFT_NUM_SAMPLES);
 		if (FFT_CallbackFlag != FFT_NODATA)
 			ADC_CallbackResultsSkippedCounter++;
 		FFT_CallbackFlag = FFT_CALLBACK_FULL;
@@ -616,7 +656,6 @@ void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef *hadc)
 	if (hadc == &hadc1)
 	{
 		ADC_CallbackCounter++;
-		TransformFFTData(0);
 		if (FFT_CallbackFlag != FFT_NODATA)
 			ADC_CallbackResultsSkippedCounter++;
 		FFT_CallbackFlag = FFT_CALLBACK_HALF;
