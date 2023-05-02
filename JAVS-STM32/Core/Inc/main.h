@@ -97,12 +97,9 @@ void Buttons_ResetFlags();
 /*
  *
  */
-#define USB_TX_BUFFERSIZE 512
-#define USB_RX_BUFFERSIZE 64
 
 #define LCD_TIMEOUT 20000
 
-#define UART_TXSKIP 0
 
 /*
  * FFT Defines
@@ -129,8 +126,6 @@ void Buttons_ResetFlags();
  * Variables
  */
 
-extern char USB_TxBuffer[USB_TX_BUFFERSIZE];
-extern volatile char USB_RxBuffer[USB_RX_BUFFERSIZE];
 
 extern volatile uint32_t LCD_TimeoutCounter;
 

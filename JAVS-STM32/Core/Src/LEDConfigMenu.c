@@ -9,6 +9,7 @@
 #include "stdio.h"
 #include "usbd_cdc_if.h"
 #include "tim.h"
+#include "utils.h"
 
 /*
  * Menu variables
