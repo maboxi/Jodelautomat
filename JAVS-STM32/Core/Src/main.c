@@ -56,36 +56,34 @@
 /* USER CODE BEGIN PV */
 
 /*
- * LCD Stuff
+ * USB virtual com port data receiving flags since receive callback cannot be moved out of usbd_cdc_if.c
  */
-
-volatile uint16_t ADC_ReadBuffer[FFT_NUM_SAMPLES * 2];
-
 volatile uint8_t CDCReceiveFlag;
 volatile uint32_t CDCReceiveDiscarded;
-/*
- * Button Memory
- */
-volatile uint8_t ButtonChange_Flag;
-volatile uint8_t ButtonStatus_Flag, ButtonStatus;
 
 /*
  * LCD Timeout counter and flag
  */
-
 volatile uint32_t LCD_TimeoutCounter;
 
 /*
- * ADC Stats
+ * FFT handler instances
  */
+FFTHandler FFT;
 
+/*
+ * Double buffer for ADC DMA
+ * ADC DMA counters
+ */
+volatile uint16_t ADC_ReadBuffer[FFT_NUM_SAMPLES * 2];
 volatile uint32_t ADC_CallbackCounter;
 volatile uint32_t ADC_CallbackResultsSkippedCounter;
 
 /*
- * FFT Stuff
+ * Button status information
  */
-FFTHandler FFT;
+volatile uint8_t ButtonChange_Flag;
+volatile uint8_t ButtonStatus_Flag, ButtonStatus;
 
 /* USER CODE END PV */
 
@@ -139,11 +137,6 @@ int main(void)
 	/* USER CODE BEGIN 2 */
 
 	/*
-	 * FFT
-	 */
-	FFTHandler_Init(&FFT);
-
-	/*
 	 * USB transmission and receiving
 	 */
 	USB_TxBuffer[USB_TX_BUFFERSIZE - 1] = 0;
@@ -151,7 +144,7 @@ int main(void)
 	CDCReceiveDiscarded = 0;
 
 	/*
-	 * LCD 20x04 I2C
+	 * init I2C LCD
 	 */
 	LCD2004_I2C lcd;
 
@@ -161,20 +154,16 @@ int main(void)
 	HAL_Delay(2000);
 	LCD_Clear(&lcd);
 
-	// Init LED stuff
+	/*
+	 * Init LED menu and LED strip handling
+	 */
 	LEDMenu_Init(&lcd);
 	LEDStrips_Init();
 
-	// Button stuff
-	ButtonChange_Flag = 0;
-	ButtonStatus = 0xFF;
-	ButtonStatus_Flag = 0;
-
-	// this will be incremented every 1 ms; check in loop if lcd kathode off or on
-	LCD_TimeoutCounter = 0;
-
-	// ms interrupt timer
-	HAL_TIM_Base_Start_IT(&htim11);
+	/*
+	 * Init FFT handler
+	 */
+	FFTHandler_Init(&FFT);
 
 	/*
 	 * ADC DMA init
@@ -187,7 +176,20 @@ int main(void)
 	HAL_ADC_Start_DMA(&hadc1, (uint32_t*) ADC_ReadBuffer, FFT_NUM_SAMPLES * 2);
 
 	/*
-	 * Timing main loop
+	 * Flags and counters for timed actions via TIM11
+	 */
+	ButtonChange_Flag = 0;
+	ButtonStatus = 0xFF;
+	ButtonStatus_Flag = 0;
+
+	LCD_TimeoutCounter = 0; // this will be incremented every 1 ms; check in loop if lcd kathode off or on
+
+	HAL_TIM_Base_Start_IT(&htim11);
+
+	// main loop local variables
+
+	/*
+	 * Timing counters for main loop
 	 */
 	uint32_t timerLast = HAL_GetTick(), timerNow;
 
@@ -202,7 +204,7 @@ int main(void)
 		/* USER CODE BEGIN 3 */
 
 		/*
-		 * Handle USB CDC receiving
+		 * Handle USB CDC commands / data
 		 */
 
 		if (CDCReceiveFlag)
@@ -215,15 +217,22 @@ int main(void)
 			CDCReceiveFlag = 0;
 		}
 
+		/*
+		 * let handler process new adc readings if available
+		 */
 		FFTHandler_ProcessData(&FFT, (uint16_t*) ADC_ReadBuffer);
 
-		// check if afk
+		/*
+		 * check if afk -> turn off lcd to reduce power consumption
+		 */
 		if (LCD_TimeoutCounter >= LCD_TIMEOUT && lcd.lcd_backlight == LCD_BACKLIGHT_ON)
 		{
 			LCD_BacklightOff(&lcd);
 		}
 
-		// Handle Button events
+		/*
+		 * Handle Button events
+		 */
 		if (ButtonChange_Flag)
 		{
 			// if lcd is on, use btn events as menu input
@@ -271,7 +280,9 @@ int main(void)
 			ButtonChange_Flag &= ~BTN_EVENT_FLAG;
 		}
 
-		// Debugging
+		/*
+		 * debugging output via usb virtual com port
+		 */
 		timerNow = HAL_GetTick();
 		if (timerNow - timerLast >= 1000)
 		{
